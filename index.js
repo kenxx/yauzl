@@ -405,7 +405,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       if (!entry.isEncrypted()) {
         throw new Error("options.decrypt can only be specified for encrypted entries");
       }
-      if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
+      // if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
       if (entry.isCompressed()) {
         if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false");
       }
@@ -452,6 +452,9 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   } else if (entry.compressionMethod === 8) {
     // 8 - The file is Deflated
     decompress = options.decompress != null ? options.decompress : true;
+  } else if (entry.compressionMethod === 99) {
+    // 99 - AE-x encryption marker (see APPENDIX E)
+    decompress = false;
   } else {
     return callback(new Error("unsupported compression method: " + entry.compressionMethod));
   }
@@ -595,6 +598,9 @@ Entry.prototype.getLastModDate = function() {
 Entry.prototype.isEncrypted = function() {
   return (this.generalPurposeBitFlag & 0x1) !== 0;
 };
+Entry.prototype.isStrongEncrypted = function() {
+  return (this.generalPurposeBitFlag & (0x1 << 6)) !== 0;
+};
 Entry.prototype.isCompressed = function() {
   return this.compressionMethod === 8;
 };
@@ -613,6 +619,24 @@ function dosDateTimeToDate(date, time) {
   var hour = time >> 11 & 0x1f; // 0-23
 
   return new Date(year, month, day, hour, minute, second, millisecond);
+}
+
+function getEncryptionHeader(extraFields) {
+  const encryptionHeader = null
+  for (var i = 0; i < extraFields.length; i++) {
+    var extraField = extraFields[i];
+    if (extraField.id === 0x0017) {
+      encryptionHeader = {}
+      encryptionHeader.tag = extraField.data.readUInt16LE(0)
+      encryptionHeader.tSize = extraField.data.readUInt16LE(2)
+      encryptionHeader.format = extraField.data.readUInt16LE(4)
+      encryptionHeader.algID = extraField.data.readUInt16LE(6)
+      encryptionHeader.bitLen = extraField.data.readUInt16LE(8)
+      encryptionHeader.flags = extraField.data.readUInt16LE(10)
+      encryptionHeader.certData = decodeBuffer(extraField.data.subarray(8, encryptionHeader.tSize - 8), true)
+    }
+  }
+  return encryptionHeader
 }
 
 function getFileNameLowLevel(generalPurposeBitFlag, fileNameBuffer, extraFields, strictFileNames) {
